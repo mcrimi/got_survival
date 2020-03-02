@@ -1,0 +1,486 @@
+---
+title: "Survival analysis of Games of Thrones characters"
+output:
+  html_document:
+    df_print: paged
+---
+Author: Mariano Crimi
+Date: 26-Feb-2020
+Course: Survival Analysis
+Methodology: SPOC
+
+#Introduction
+
+
+```{r}
+library(readr)
+library(tidyverse)
+library(survival)
+library(survivalROC)
+library(glmnet)
+library(Matrix)
+library(ggplot2)
+library(survminer)
+library(gridExtra)
+library(RColorBrewer)
+palette <- brewer.pal(3, "Pastel2") 
+```
+
+**Read in the dataset file**
+
+```{r}
+datRaw<-read.csv("character_data_S01-S08.csv")
+```
+
+**Data wrangling **
+Drop variables that are of no interest and convert categorical variables to factors.
+
+```{r}
+drops <- c("name",
+           "dth_season",
+           "dth_episode", 
+           "dth_time_sec", 
+           "dth_time_hrs",
+           "dth_description",
+           "intro_season",
+           "intro_episode",
+           "intro_time_hrs",
+           "intro_time_sec",
+           "featured_episode_count",
+           "exp_episode",
+           "exp_time_hrs",
+           "exp_season",
+           "censor_time_sec",
+           "censor_time_hrs",
+           "icd10_dx_code",
+           "icd10_dx_text",
+           "icd10_cause_code",
+           "icd10_cause_text",
+           "icd10_place_code",
+           "icd10_place_text",
+           "top_location",
+           "geo_location",
+           "time_of_day",
+           "X",
+           "X.1",
+           "X.2",
+           "X.3",
+           "X.4",
+           "X.5")
+dat <- datRaw[ , !(names(datRaw) %in% drops)]
+
+dat <- mutate(dat,
+              sex = factor(sex, levels = c(1,2), 
+                                     labels = c("Male", 
+                                                "Female")),
+              social_status = factor(social_status, levels = c(1,2), 
+                                                    labels = c("Highborn", 
+                                                               "Lowborn")),
+              occupation = factor(occupation, levels = c(1,2,9), 
+                                              labels = c("Silk collar", 
+                                                         "Boiled leather collar",
+                                                         "Unknown")),
+              allegiance_switched = factor(allegiance_switched, levels = c(1,2), 
+                                                                labels = c("No", 
+                                                                            "Yes")),              
+              religion = factor(religion, levels = c(1,2,3,4,5,6,7,9 ), 
+                                          labels = c("Stallion",
+                                                     "LoL",
+                                                     "Faithof7",
+                                                     "OldGods",
+                                                     "D.God",
+                                                     "M.FacedGod",
+                                                     "Other",
+                                                     "Unknown")),
+              allegiance_last = factor(allegiance_last, levels = c(1:9), 
+                                                        labels = c("Stark",
+                                                                   "Targaryen",
+                                                                    "NightWatch",
+                                                                    "Lannister",
+                                                                    "Greyjoy",
+                                                                    "Bolton",
+                                                                    "Frey",
+                                                                    "Other",
+                                                                    "Unclear")))
+```
+
+#Exploration of the data
+
+```{r}
+
+grid.arrange(qplot(dat$allegiance_last, xlab = "Allegiance"),
+             qplot(dat$sex, xlab = "Sex"),
+             qplot(dat$social_status, xlab = "Social Status"),
+             qplot(dat$occupation, xlab = "Ocuppation"),
+             qplot(dat$allegiance_switched, xlab = "Switched allegiance?"),
+             qplot(dat[dat$religion != "Unknown",]$religion, xlab = "Religions (removing unknowns)"),
+             qplot(dat$exp_time_sec/60, xlab = "Survival in mins", ylab="y"),
+             qplot(factor(dat$dth_flag, levels = c(0:1), labels = c("Yes","No")), xlab="Death"),
+             qplot(dat$prominence, xlab = "Prominence"),
+             nrow = 5
+            )
+summary(dat)
+dim(dat)
+```
+
+**Prominence:** Given that the metric was calculated as a function of the survial of the episodes (: [prominence] = ([featured_episode_count] / [exp_episode]) * [exp_season]) I was initially expecting that this variable would add very little information to the model.
+Upon checking the correlation level seems acceptable to fit it into the model
+
+```{r}
+cor(dat$prominence,dat$exp_time_sec/60)
+qplot(x=(dat$prominence),y=(dat$exp_time_sec/60), geom = c("jitter","smooth"), xlab="Prominence score" , ylab="Survival Time  (mins)")
+```
+
+I now proceed to add prominance as a three level factor, high-medium-low
+```{r}
+dat$prominence<- cut(dat$prominence, breaks=c(0,1,4,9), label=c("low","med","high"))
+qplot(dat$prominence, xlab = "Prominence count")
+```
+
+We then create a survival object to be used as the response vairable of our dataset using survival::Surv.
+Object Y will consist on Time (right censored) *in minutes* and Event (0=alive, 1=dead)
+
+```{r}
+dat$y <- with(dat, Surv(time= exp_time_sec/60, event=dth_flag))
+```
+
+
+#Survival Analysis
+
+We choose to use non-parametric modelization of the survival. In particular we chose Kaplen Mayer estimator (Nelson Allen gives us very similar results). 
+We first explore the general survival curve of the dataset. We get an estimated median overall survival of 1729 minutes (with 95% confidence that the actual median is within 1215 mins and 2546 mins)
+
+```{r}
+fitKM<-survfit(y ~ 1, data = dat)
+ggsurvplot(fitKM, xlab="Time(mins)", ylab="Survival Probability",main="KM Plot", surv.median.lin="hv")
+fitKM
+summary(fitKM)
+
+```
+
+We then proceed to explore all the covariates individually
+
+```{r}
+
+fitSex <- survfit(y ~ sex, data = dat)
+fitOccupation <- survfit(y ~ occupation, data = dat)
+fitAllegiance <- survfit(y ~ allegiance_last, data = dat)
+fitSwitch <- survfit(y ~ allegiance_switched, data = dat)
+fitReligion <- survfit(y ~ religion, data = dat)
+fitProminence <- survfit(y ~ prominence, data = dat)
+fitStatus <- survfit(y ~ social_status, data = dat)
+
+
+
+ggsurvplot(fitSex, xlab="Time(mins)", ylab="Survival Probability", pval=TRUE, pval.method = TRUE)
+ggsurvplot(fitOccupation, xlab="Time(mins)", ylab="Survival Probability", pval=TRUE, pval.method = TRUE)
+ggsurvplot(fitAllegiance, xlab="Time(mins)", ylab="Survival Probability", pval=TRUE, pval.method = TRUE)
+ggsurvplot(fitSwitch, xlab="Time(mins)", ylab="Survival Probability", pval=TRUE, pval.method = TRUE)
+ggsurvplot(fitReligion, xlab="Time(mins)", ylab="Survival Probability", pval=TRUE, pval.method = TRUE)
+ggsurvplot(fitStatus, xlab="Time(mins)", ylab="Survival Probability", pval=TRUE, pval.method = TRUE)
+ggsurvplot(fitProminence, xlab="Time(mins)", ylab="Survival Probability", pval=TRUE, pval.method = TRUE)
+
+
+```
+
+At this point we would drop intro_season, occupation and social status as good predictors.
+We now explore the relationship between the most interesting factors
+
+For example we examine religion which at a first glance seems siginificant (p=0.002)
+We llok at the proportion of other interesting factors within the groups
+```{r}
+#plot(table(dat$religion,dat$sex), main="Proportion of sex per religion")
+#plot(table(dat$religion,dat$allegiance_last), col=105:110, main="Proportion of allegiance per religion")
+ggplot(dat, aes(religion, fill=sex)) + geom_bar()
+ggplot(dat, aes(religion, fill=allegiance_last)) + geom_bar()
+
+
+```
+We see that females and some allegiances are largely underrepresented in some religions. Let us stratify by sex and see if we find the same significance
+
+```{r}
+survdiff(y ~ religion+strata(sex,allegiance_last), data=dat)
+```
+
+
+Occupation analysis
+```{r}
+table(dat$occupation,dat$sex)
+plot(table(dat$occupation,dat$sex), main="Proportion of sex per occupation", col=palette)
+survdiff(y ~ occupation+strata(sex), data=dat)
+survdiff(y ~ occupation, data=dat)
+
+```
+
+Social status analysis
+```{r}
+
+survdiff(y ~ social_status, data=dat)
+
+plot(table(dat$allegiance_last,dat$social_status),   main="Proportion of social status per allegiance", col=palette)
+coxph(y ~ allegiance_last, data = dat)
+
+plot(table(dat$prominence,dat$social_status),   main="Proportion of social status per prominence", col=palette)
+coxph(y ~ prominence, data = dat)
+
+survdiff(y ~ social_status+strata(prominence,allegiance_last), data=dat)
+
+qplot(x=factor(dat$social_status), y = datRaw$prominence, data = dat, geom = c("boxplot"), xlab = "Social status", ylab = "Prominence")
+
+```
+
+
+Prominence and allegiance_switched
+```{r}
+survdiff(y ~ prominence+strata(allegiance_switched), data=dat)
+survdiff(y ~ allegiance_switched+strata(prominence), data=dat)
+
+plot(table(dat$prominence,dat$allegiance_switched),   main="Proportion desertion per prominence", col=palette)
+
+
+```
+Others
+
+```{r}
+survdiff(y ~ allegiance_last+strata(sex,social_status,prominence,allegiance_switched), data=dat)
+survdiff(y ~ sex+strata(allegiance_last,allegiance_switched,prominence,social_status), data=dat)
+survdiff(y ~ allegiance_switched+strata(sex,prominence,allegiance_last,social_status), data=dat)
+survdiff(y ~ prominence+strata(allegiance_last,sex,allegiance_switched,social_status), data=dat)
+```
+
+
+We become more and more convinced that these are good predictors:
+
+*prominence
+*sex
+*allegiance_switched
+*allegiance_last
+
+Before proceeding with the manual model creation, we would like to perform a likelihood ratio test on the nested model
+to test the assumption that the religon we removed due to stratification wouldn't add significance to the model
+```{r}
+fitCompNestA <- coxph(y ~ sex+allegiance_last+allegiance_switched+prominence, data = dat)
+fitCompFullB <- coxph(y ~ sex+allegiance_last+allegiance_switched+prominence+occupation, data = dat)
+anova(fitCompNestA, fitCompFullB)
+
+fitCompNestC <- coxph(y ~ sex+allegiance_last+allegiance_switched+prominence, data = dat)
+fitCompFullD <- coxph(y ~ sex+allegiance_last+allegiance_switched+prominence+social_status, data = dat)
+anova(fitCompNestC, fitCompFullD)
+
+```
+In both cases we can't reject H0= social status/occupation is 0, therefore we assume these doesn't predictive information to the model
+
+
+#Diagnostics
+_____________
+
+We now check the **proportionality of hazards** assumption by plotting the survival functin curves in
+complementary loglog scale
+
+```{r}
+#Plot log-log curves
+plot(survfit(y ~ prominence, data = dat), fun= "cloglog", col = 1:3, main="prominence risks (cloglog)")
+plot(survfit(y ~ sex, data = dat), fun= "cloglog", col = 1:2,main="sex risks (cloglog)")
+plot(survfit(y ~ allegiance_switched+strata(prominence), data = dat), fun= "cloglog", col = 1:6,main="allegiance_switched risks (cloglog)")
+plot(survfit(y ~ allegiance_last, data = dat), fun= "cloglog", col = 1:9,main="allegiance_last risks (cloglog)")
+
+#Hypothesis testing
+cox.zph(coxph(y ~ sex+allegiance_switched+allegiance_last+prominence, data = dat))
+#Plot
+plot(cox.zph(coxph(y ~ sex+allegiance_switched+allegiance_last+prominence, data = dat)))
+ggcoxzph(cox.zph(coxph(y ~ sex+allegiance_switched+allegiance_last+prominence, data = dat)))
+```
+
+Stratification
+```{r}
+#Alteratives
+cox.zph(coxph(y ~ sex+prominence+allegiance_last+strata(allegiance_switched), data = dat))
+cox.zph(coxph(y ~ sex+prominence+allegiance_switched+strata(allegiance_last), data = dat))
+cox.zph(coxph(y ~ prominence+allegiance_switched+allegiance_last+strata(sex), data = dat))
+#The winner
+cox.zph(coxph(y ~ sex+allegiance_switched+allegiance_last+strata(prominence), data = dat))
+
+```
+
+```{r}
+fitAnalysis<-coxph(y ~ sex+allegiance_switched+strata(prominence), data=dat)
+```
+
+
+```{r}
+#Martingale residuals
+dat_res<-dat
+dat_res$residualsM <- residuals(fitAnalysis, type = "martingale")
+dat_res$residualsB <- residuals(fitAnalysis, type = "dfbetas")
+with(dat_res, {
+  
+  boxplot(residualsM ~ sex)
+
+  boxplot(residualsM ~ allegiance_switched)
+  
+
+})
+
+```
+Outliers analysis
+```{r}
+dat_res$residualsB <- sqrt(rowSums(dat_res$residualsB^2))
+```
+
+```{r}
+plot(dat_res$residualsB, type = 'h', ylab="dfbetas")
+```
+
+
+We see that only sex passes the test for proportionality of hazards. Looking at the residuals it looks that some artificial censoring would help some of the variables
+```{r}
+new_censor_mins=300
+new_censor_sec=new_censor_mins*60
+dat_trunc <- within(dat, {
+  dth_flag_truncated <- ifelse(exp_time_sec > new_censor_sec, 0, dth_flag)
+  exp_time_sec_truncated <- ifelse(exp_time_sec > new_censor_sec,new_censor_sec, exp_time_sec)
+})
+  
+cox.zph(coxph(Surv(exp_time_sec_truncated/60, dth_flag_truncated) ~ sex+prominence+allegiance_switched+allegiance_last, data = dat_trunc))
+
+```
+
+#Conclusion
+```{r}
+summary(fitAnalysis)
+```
+
+#Regression
+
+Data preparation for regression
+```{r}
+set.seed(123) # setting seed for reproducibility
+
+#Leave only explanatory varialbes
+dat_models <- dat[,!(names(dat) %in% c("id","dth_flag","exp_time_sec"))]
+
+#Training and testing sets
+trn_size <- floor(0.75 * nrow(dat_models))
+train_ind <- sample(seq_len(nrow(dat_models)), size = trn_size)
+dat_trn <- dat_models[train_ind, ]
+dat_test <- dat_models[-train_ind, ]
+
+```
+
+#Manual model
+Based on the invividual log rank tests, the anova tests and the proportinality of hazards we leans towards a model that considers sex and allegiance_switched, stratifying for prominence.
+```{r}
+fitManual <- coxph(y ~ sex+allegiance_switched+strata(prominence), data=dat_trn)
+summary(fitManual)
+betasManual <- coef(fitManual)
+```
+
+#Feature Selection
+Data preparation
+```{r}
+y <- dat_trn$y
+Xmatrix <- model.matrix(y ~ ., data = dat_trn)
+Xmatrix <-Xmatrix[,-c(1)] # remove intercept
+```
+
+#ElasticNet
+## Using 1se and min cv error lambdas
+
+```{r}
+fitElastic1se <- cv.glmnet(x=Xmatrix, y=y, family = "cox")
+betasElasticNet1se.all <- coef(fitElastic1se, s = "lambda.1se")
+betasElasticNet1se <- betasElasticNet1se.all[betasElasticNet1se.all != 0]
+names(betasElasticNet1se) <- colnames(Xmatrix)[as.logical(betasElasticNet1se.all != 0)]
+names(betasElasticNet1se)
+
+#Plot lambdas
+plot(fitElastic1se)
+
+
+fitElasticMin <- cv.glmnet(x=Xmatrix, y=y, family = "cox")
+betasElasticNetMin.all <- coef(fitElasticMin, s = "lambda.min")
+betasElasticNetMin <- betasElasticNetMin.all[betasElasticNetMin.all != 0]
+names(betasElasticNetMin) <- colnames(Xmatrix)[as.logical(betasElasticNetMin.all != 0)]
+names(betasElasticNetMin)
+
+```
+
+#Stepwise using AIC
+
+```{r}
+fitAic<- step(coxph(y ~ ., data = dat_trn),direction = "both")
+betasAIC <- coef(fitAic)
+summary(fitAic)
+```
+
+
+#Model Selection and performance evaluation
+
+```{r}
+#Function for linear combinantion of the coefficients
+lincom <- function(b, Xr) rowSums(sweep(Xr[, names(b), drop = FALSE], 2, b, FUN = "*"))
+
+
+
+models_coefficients <- tibble(
+  method = c("manual", "aic", "elasticNet1se","elasticNetMin"),
+  coefficients = list(betasManual, betasAIC, betasElasticNet1se,betasElasticNetMin)
+)
+
+
+
+dat_testMatrix <- model.matrix(y ~ .-1, data=dat_test)
+ytest <- dat_test$y
+
+
+got_models_performance <- mutate(models_coefficients,
+                             predictions = map(coefficients, ~ lincom(., dat_testMatrix)),
+                             cox_obj = map(predictions, ~ coxph(ytest ~ I(. / sd(.)))),
+                             cox_tab = map(cox_obj, broom::tidy)
+) %>% unnest(cox_tab)
+
+
+#Test against actual values
+got_models_performance <- mutate(got_models_performance,
+                             AUC = map_dbl(predictions, ~ survivalROC::survivalROC(Stime=ytest[, 1], status=ytest[, 2], ., predict.time = 3000, method = "KM")$AUC)
+)
+got_models_performance
+got_models_performance_html<- mutate(got_models_performance,
+                                     estimate = round(estimate,4),
+                                     statistic = round(statistic,4),
+                                     p.value = round(p.value,4),
+                                     conf.low = round(conf.low	,4),
+                                     conf.high = round(conf.high,4),
+                                     AUC = round(AUC,4)
+                                     )
+
+got_models_performance %>%select(method, estimate, std.error, p.value, AUC)
+got_models_performance$cox_obj[4]
+```
+
+#ROC comparison (Manual vs ElasticNetMin)
+
+```{r}
+ROC_Manual<-survivalROC(Stime=ytest[, 1], status=ytest[, 2], marker= unlist(got_models_performance$predictions[1], use.names=FALSE), predict.time = 3000, method = "KM")
+
+ROC_Elastic_min<-survivalROC(Stime=ytest[, 1], status=ytest[, 2], marker= unlist(got_models_performance$predictions[4], use.names=FALSE), predict.time = 3000, method = "KM")
+
+ROC <- list(Manual = ROC_Manual, Elastic_min = ROC_Elastic_min)
+map_dbl(ROC, "AUC")
+
+dfl <- map(ROC, ~ with(., tibble(cutoff = cut.values, FP, TP)))
+for(nm in names(dfl)) {
+  dfl[[ nm ]]$marker <- nm
+}
+ROCdat <- do.call(rbind, dfl)
+
+ggplot(ROCdat, aes(FP, TP, color = marker)) +
+  geom_line() +
+  theme_bw(base_size = 9)
+```
+
+
+
+
+
+
