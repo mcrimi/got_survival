@@ -225,7 +225,6 @@ coxph(y ~ prominence, data = dat)
 
 survdiff(y ~ social_status+strata(prominence,allegiance_last), data=dat)
 
-qplot(x=factor(dat$social_status), y = datRaw$prominence, data = dat, geom = c("boxplot"), xlab = "Social status", ylab = "Prominence")
 
 ```
 
@@ -456,6 +455,7 @@ got_models_performance_html<- mutate(got_models_performance,
 
 got_models_performance %>%select(method, estimate, std.error, p.value, AUC)
 got_models_performance$cox_obj[4]
+betasElasticNetMin
 ```
 
 #ROC comparison (Manual vs ElasticNetMin)
