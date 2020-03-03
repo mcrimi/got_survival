@@ -465,7 +465,7 @@ ROC_Manual<-survivalROC(Stime=ytest[, 1], status=ytest[, 2], marker= unlist(got_
 
 ROC_Elastic_min<-survivalROC(Stime=ytest[, 1], status=ytest[, 2], marker= unlist(got_models_performance$predictions[4], use.names=FALSE), predict.time = 3000, method = "KM")
 
-ROC <- list(Manual = ROC_Manual, Elastic_min = ROC_Elastic_min)
+ROC <- list(Manual = ROC_Manual, elasticNetMin = ROC_Elastic_min)
 map_dbl(ROC, "AUC")
 
 dfl <- map(ROC, ~ with(., tibble(cutoff = cut.values, FP, TP)))
