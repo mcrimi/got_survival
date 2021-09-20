@@ -1,8 +1,4 @@
-## Survival Analysis of
-
-## Game of Thrones
-
-# Characters
+## Survival Analysis of Game of Thrones Characters
 
 #### ABSTRACT
 
