@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Would you survive Westeros? · Mariano Crimi</title>
+<meta name="description" content="A survival model fitted on 359 Game of Thrones characters. Pick a house, a faith and a station, and see your odds of reaching the finale.">
+<link rel="canonical" href="https://marianocrimi.com/got/">
+<meta property="og:title" content="Would you survive Westeros?">
+<meta property="og:description" content="A survival model fitted on 359 Game of Thrones characters, with the statistics shown.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://marianocrimi.com/got/">
+<meta property="og:image" content="https://marianocrimi.com/assets/img/og.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%231B1B19'/%3E%3Cpath d='M3.5 12V4l4.5 5 4.5-5v8' fill='none' stroke='%23ECEBE6' stroke-width='1.6'/%3E%3C/svg%3E">
+<script>
+  // Follow the reading settings chosen on marianocrimi.com (same storage key).
+  (function () {
+    var s = {};
+    try { s = JSON.parse(localStorage.getItem("mcrimi-site") || "{}") || {}; } catch (e) {}
+    var root = document.documentElement;
+    root.dataset.theme = s.paper === "night" ? "dark" : "light";
+    if (s.paper === "grey") root.dataset.paper = "grey";
+    root.dataset.font = s.font === "garamond" || s.font === "charter" ? s.font : "literata";
+    if (s.size === "s" || s.size === "l") root.dataset.size = s.size;
+  })();
+</script>
+<link rel="stylesheet" href="got.css">
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="in gut">
+    <a class="mark" href="/" aria-label="Back to marianocrimi.com">← mcrimi</a>
+    <nav class="nav" aria-label="On this page">
+      <a href="#predict">Your odds</a>
+      <a href="#findings">Findings</a>
+      <a href="#trap">The trap</a>
+      <a href="#cast">Cast</a>
+      <a href="#method">Method</a>
+    </nav>
+    <div class="status">
+      <button class="aa" id="aa" type="button" aria-expanded="false" aria-controls="panel" aria-label="Paper settings">Aa</button>
+    </div>
+    <div class="panel" id="panel" hidden>
+      <div class="grp">
+        <span class="label">Paper</span>
+        <div class="seg" role="group" aria-label="Paper">
+          <button type="button" data-paper="warm">Warm</button>
+          <button type="button" data-paper="grey">Grey</button>
+          <button type="button" data-paper="night">Night</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap gut">
+
+  <section id="predict" aria-labelledby="predict-h">
+    <p class="label">Survival analysis · R</p>
+    <h1 id="predict-h">Would you survive Westeros?</h1>
+    <p class="dek">A survival model fitted on all 359 characters of <em>Game of Thrones</em>. Say who you are when you first walk on screen, and it estimates how long you last.</p>
+    <p class="notice">Spoilers for all eight seasons.</p>
+
+    <div class="predict">
+      <form id="controls" class="controls" aria-label="Your character">
+        <noscript><p>This page needs JavaScript to run the model. The <a href="report/">full analysis</a> reads without it.</p></noscript>
+      </form>
+
+      <div class="result">
+        <figure class="chart" id="predict-fig">
+          <svg id="predict-chart" role="img" aria-labelledby="predict-cap"></svg>
+          <figcaption id="predict-cap" class="cap">Your predicted survival curve, with a 95% band, against all characters.</figcaption>
+        </figure>
+        <p class="verdict" id="verdict" aria-live="polite">Loading the model…</p>
+        <p class="fine" id="verdict-fine"></p>
+        <p class="fine" id="peers"></p>
+      </div>
+    </div>
+    <p class="fine explain">“Seeing the finale” means still being alive after <span data-fill="horizon">64</span> hours of screen time: the model’s survival probability for a character introduced in the first episode. Hours are running time since your first appearance.</p>
+  </section>
+
+  <section id="findings" aria-labelledby="findings-h">
+    <h2 id="findings-h">What the data says</h2>
+    <div class="prose">
+      <p>Of <span data-fill="n">359</span> characters, <span data-fill="deaths">212</span> die. Half are dead within <span data-fill="median">29</span> hours of first appearing, and most of the damage is early: one in six does not see out their first hour.</p>
+    </div>
+    <div class="seg tabs" id="term-tabs" role="group" aria-label="Compare characters by"></div>
+    <div class="chips" id="level-chips" role="group" aria-label="Groups shown"></div>
+    <figure class="chart">
+      <svg id="km-chart" role="img" aria-labelledby="km-cap"></svg>
+      <figcaption id="km-cap" class="cap">Kaplan-Meier curves: the share of each group still alive, by hours since first appearing.</figcaption>
+    </figure>
+    <div class="prose"><p id="km-text"></p></div>
+
+    <h3>What the model makes of it</h3>
+    <div class="prose">
+      <p>Put together in one model, each trait gets a hazard ratio: how much faster or slower a group dies than the commonest group, all else equal. Left of the line is safer.</p>
+    </div>
+    <figure class="chart">
+      <svg id="hr-chart" role="img" aria-labelledby="hr-cap"></svg>
+      <figcaption id="hr-cap" class="cap">Hazard ratios from the deployed model. Square: estimate. Line: 95% bootstrap interval.</figcaption>
+    </figure>
+    <div class="prose">
+      <p>The honest summary is that <strong>these traits predict little</strong>. On characters the model has not seen, it ranks a random pair correctly about <span data-fill="cindex">62</span>% of the time, where a coin gets 50. Who lives is mostly up to the writers.</p>
+    </div>
+  </section>
+
+  <section id="trap" aria-labelledby="trap-h">
+    <h2 id="trap-h">The trap: “switch sides and live”</h2>
+    <div class="prose">
+      <p>The first version of this project, written in 2020, found that characters who changed allegiance lived much longer, and built its final model on that. In the data the effect looks strong: switching appears to cut the risk of death by <span data-fill="naive-cut">53</span>%.</p>
+      <p>It is an artefact. To switch sides you first have to stay alive long enough to do it. A character killed in their first scene is counted as loyal, and every hour a turncoat spent alive <em>before</em> turning is credited to the turning. Statisticians call that stretch <em>immortal time</em>.</p>
+      <p>To see how much the mechanism can do on its own, here are <span data-fill="sim-n">5,000</span> simulated characters who die at random and switch sides at random. Switching does nothing to them.</p>
+    </div>
+    <figure class="chart">
+      <svg id="sim-chart" role="img" aria-labelledby="sim-cap"></svg>
+      <figcaption id="sim-cap" class="cap">Simulated characters for whom switching has no effect, grouped by whether they ever switched.</figcaption>
+    </figure>
+    <div class="table-wrap">
+      <table id="trap-table" class="data">
+        <caption class="label">Hazard ratio for switching sides (1.0 = no effect)</caption>
+        <thead><tr><th scope="col">Analysis</th><th scope="col">Estimate</th><th scope="col">95% interval</th><th scope="col">Verdict</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="prose">
+      <p>On the simulation, counting someone as a switcher only from the moment they switch recovers the truth. On the real data that analysis is not possible: the dataset records <em>that</em> a character switched, not <em>when</em>. Restarting the clock for everyone still alive at ten hours removes part of the bias, and the effect shrinks until its interval includes “no effect”. So switching sides, and the equally circular “prominence” score, are left out of the model above.</p>
+    </div>
+  </section>
+
+  <section id="cast" aria-labelledby="cast-h">
+    <h2 id="cast-h">The cast</h2>
+    <div class="prose"><p>Every character in the data. Choose one to load them into the model and mark their fate on the curve.</p></div>
+    <p class="fine">Allegiance is the last one the data records. That is why Tyrion Lannister is filed under Stark, and why Eddard Stark, who died as King Robert’s Hand, is under Other.</p>
+    <div class="cast-tools">
+      <label class="field"><span class="label">Search</span><input id="cast-search" name="q" type="search" autocomplete="off" spellcheck="false" placeholder="Name or allegiance"></label>
+      <div class="seg" id="cast-fate" role="group" aria-label="Fate">
+        <button type="button" data-fate="all" aria-pressed="true">All</button>
+        <button type="button" data-fate="dead" aria-pressed="false">Dead</button>
+        <button type="button" data-fate="alive" aria-pressed="false">Alive</button>
+      </div>
+    </div>
+    <p class="fine" id="cast-count" aria-live="polite"></p>
+    <ol class="cast" id="cast-list"></ol>
+    <button type="button" class="btn" id="cast-more" hidden>Show more</button>
+  </section>
+
+  <section id="method" aria-labelledby="method-h">
+    <h2 id="method-h">How it was built</h2>
+    <div class="prose">
+      <p>The analysis is written in R and runs as one reproducible pipeline. It fits three models, scores them on characters they have not seen, and exports the chosen one as plain numbers. This page computes every prediction in your browser from those numbers; a test checks that it agrees with R to seven decimal places.</p>
+    </div>
+<pre class="flow" aria-label="Pipeline">character_data.csv
+ └─ clean        pool rare groups, set reference levels
+     └─ fit      Cox · elastic net · random forest
+         └─ validate   20 × 5-fold cross-validation
+             ├─ report   Quarto
+             └─ export   model.json ──→ this page
+                         fixtures   ──→ parity test (R = JS)</pre>
+    <div class="table-wrap">
+      <table id="metrics-table" class="data">
+        <caption class="label">Out-of-sample performance (mean of 20 repeats)</caption>
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="fine">C-index and AUC: higher is better, 0.5 is chance. Brier score: lower is better. The random forest is a benchmark; it cannot be shipped as a handful of coefficients.</p>
+    <ul class="links">
+      <li><a href="report/">Read the full analysis</a><span>methods, diagnostics, validation and limitations</span></li>
+      <li><a href="https://github.com/mcrimi/got_survival" rel="noopener">Source on GitHub</a><span>R pipeline, tests and this page</span></li>
+      <li><a href="https://figshare.com/articles/Game_of_Thrones_mortality_and_survival_dataset/8259680/1" rel="noopener">The dataset</a><span>by Reidar Lystad and Benjamin Brown</span></li>
+    </ul>
+    <p class="fine">Built by <a href="/">Mariano Crimi</a>. Not affiliated with HBO. For entertainment and for teaching survival analysis.</p>
+  </section>
+
+</main>
+</body>
+</html>

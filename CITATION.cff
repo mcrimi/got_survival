@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use this analysis, please cite it, and cite the dataset authors below."
+title: "Survival analysis of Game of Thrones characters"
+authors:
+  - family-names: Crimi
+    given-names: Mariano
+version: 2.0.0
+date-released: 2026-11-20
+url: "https://marianocrimi.com/got/"
+repository-code: "https://github.com/mcrimi/got_survival"
+license: MIT
+references:
+  - type: data
+    title: "Game of Thrones mortality and survival dataset"
+    authors:
+      - family-names: Lystad
+        given-names: Reidar P.
+      - family-names: Brown
+        given-names: Benjamin T.
+    year: 2019
+    url: "https://figshare.com/articles/Game_of_Thrones_mortality_and_survival_dataset/8259680/1"
+  - type: article
+    title: "\"Death is certain, the time is not\": mortality and survival in Game of Thrones"
+    authors:
+      - family-names: Lystad
+        given-names: Reidar P.
+      - family-names: Brown
+        given-names: Benjamin T.
+    journal: "Injury Epidemiology"
+    volume: 5
+    year: 2018
+    doi: "10.1186/s40621-018-0174-7"

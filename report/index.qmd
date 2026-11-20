@@ -8,7 +8,11 @@ format:
     toc-depth: 2
     embed-resources: true
     theme: none
+    minimal: true
     css: paper.css
+    include-in-header: header.html
+    include-before-body: before.html
+    highlight-style: none
     code-fold: true
     code-summary: "Code"
     fig-width: 7
@@ -36,14 +40,16 @@ tar_load(c(characters, cox, enet, ph, cox_show_clock, cv_summary, deployed_name,
 theme_set(
   theme_minimal(base_size = 11) +
     theme(
-      text = element_text(colour = "#1c1b18"), axis.text = element_text(colour = "#1c1b18"),
+      text = element_text(colour = "#1B1B19"), axis.text = element_text(colour = "#1B1B19"),
       panel.grid = element_blank(), axis.line = element_line(linewidth = 0.3),
       axis.ticks = element_line(linewidth = 0.3), legend.position = "bottom",
-      plot.background = element_rect(fill = "#f4f1e8", colour = NA),
+      # White, so the image can be blended onto whichever paper the reader chose.
+      plot.background = element_rect(fill = "white", colour = NA),
+      strip.text = element_text(colour = "#1B1B19", hjust = 0, face = "bold"),
       plot.title.position = "plot"
     )
 )
-ink <- "#1c1b18"
+ink <- "#1B1B19"
 pct <- function(x, digits = 0) sprintf(paste0("%.", digits, "f%%"), 100 * x)
 num <- function(x, digits = 2) formatC(x, format = "f", digits = digits)
 metric <- function(model, name, horizon = NA) {
@@ -266,6 +272,8 @@ range reflects the luck of the fold split, not sampling uncertainty in the data,
 wide <- function(name, digits = 3) {
   d <- cv_summary[cv_summary$metric == name, ]
   d$cell <- sprintf(paste0("%.", digits, "f (%.", digits, "f to %.", digits, "f)"), d$mean, d$lo, d$hi)
+  # The no-covariate model is the same in every repeat, so it has no range.
+  d$cell[d$hi - d$lo < 1e-9] <- sprintf(paste0("%.", digits, "f"), d$mean[d$hi - d$lo < 1e-9])
   d$Measure <- switch(name,
     c_index = "C-index", auc = paste0("AUC at ", d$horizon, " h"),
     brier = paste0("Brier at ", d$horizon, " h"), ibs = "Integrated Brier, 0 to 50 h")
@@ -369,6 +377,10 @@ the real data. That is the natural next step.
 - **Proportional hazards does not hold** for every covariate.
 - **Intervals on the web page** come from 200 bootstrap refits at fixed alpha and lambda. They
   leave out tuning uncertainty and are narrower than a fully honest interval would be.
+- **The far end of the curve is thin.** Only characters introduced in the first minutes of
+  season 1 can be followed for the full `r num(horizon, 0)` hours, so "chance of reaching the
+  finale" rests on few characters and assumes that the hazard depends on time since
+  introduction, not on the season.
 - **This describes a script, not a population.** Deaths are authored. The model is for
   entertainment and for teaching survival analysis.
 

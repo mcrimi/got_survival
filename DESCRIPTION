@@ -1,0 +1,23 @@
+Package: gotsurvival
+Title: Survival Analysis of Game of Thrones Characters
+Version: 2.0.0
+Description: Analysis project, not an installable package. This file lists
+    the R packages the pipeline needs, for renv and for continuous integration.
+License: MIT + file LICENSE
+Depends:
+    R (>= 4.4)
+Imports:
+    ggplot2,
+    glmnet,
+    jsonlite,
+    knitr,
+    quarto,
+    ranger,
+    riskRegression,
+    rmarkdown,
+    scales,
+    survival,
+    tarchetypes,
+    targets,
+    testthat,
+    withr
