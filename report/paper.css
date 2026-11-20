@@ -1,0 +1,19 @@
+/* Paper and ink, to sit beside marianocrimi.com. */
+:root { --paper: #f4f1e8; --ink: #1c1b18; --ink-2: #5d5a52; --line: #1c1b18; }
+@media (prefers-color-scheme: dark) {
+  :root { --paper: #16150f; --ink: #e9e5d8; --ink-2: #a39f92; --line: #e9e5d8; }
+}
+body { background: var(--paper); color: var(--ink); font-family: "Literata", Georgia, serif; line-height: 1.55; }
+h1, h2, h3, h4 { font-family: "EB Garamond", Georgia, serif; font-weight: 600; color: var(--ink); border: 0; }
+h2 { border-top: 1px solid var(--line); padding-top: 1.2rem; margin-top: 2.5rem; }
+a { color: var(--ink); text-decoration: underline; }
+code, pre { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.85em; color: var(--ink); background: transparent; }
+pre, div.sourceCode { border: 1px solid var(--line); border-radius: 0; background: transparent; }
+table { border-collapse: collapse; font-size: 0.9em; }
+table th, table td { border-bottom: 1px solid var(--line); padding: 0.3rem 0.7rem; }
+.table { color: var(--ink); --bs-table-color: var(--ink); --bs-table-bg: transparent; }
+#TOC, .sidebar nav[role=doc-toc] a, .quarto-title-meta, figcaption { color: var(--ink-2); }
+.callout { border-radius: 0; border: 1px solid var(--line) !important; background: transparent; }
+.callout-header { background: transparent !important; }
+img { mix-blend-mode: multiply; }
+@media (prefers-color-scheme: dark) { img { filter: invert(1) hue-rotate(180deg); mix-blend-mode: screen; } }

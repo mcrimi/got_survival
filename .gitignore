@@ -1,0 +1,10 @@
+_targets/
+.Rproj.user
+.Rhistory
+.DS_Store
+report/_site/
+report/*_files/
+report/.quarto/
+report/index.html
+dist/
+node_modules/
