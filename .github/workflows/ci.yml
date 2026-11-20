@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    # Pinned: the locked package versions have prebuilt binaries for this release.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: "4.4"
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-pandoc@v2
+
+      - name: System libraries needed by R packages
+        run: sudo apt-get update && sudo apt-get install -y libglpk-dev
+
+      - uses: r-lib/actions/setup-renv@v2
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: R tests
+        run: Rscript -e 'testthat::test_dir("tests/testthat", stop_on_failure = TRUE)'
+
+      - name: Run the pipeline (models, validation, JSON export, report)
+        run: Rscript -e 'targets::tar_make()'
+
+      - name: Every target succeeded
+        run: Rscript -e 'stopifnot(nrow(targets::tar_meta(fields = error, complete_only = TRUE)) == 0)'
+
+      - name: JavaScript tests, including R-to-JS parity on the fresh export
+        run: npm test
+
+      - name: Syntax-check the page scripts
+        run: for f in web/js/*.js; do node --check "$f"; done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: |
+            web
+            report/index.html

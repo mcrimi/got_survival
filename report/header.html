@@ -1,0 +1,9 @@
+<script>
+  // Follow the reading settings chosen on marianocrimi.com (same storage key).
+  (function () {
+    var s = {};
+    try { s = JSON.parse(localStorage.getItem("mcrimi-site") || "{}") || {}; } catch (e) {}
+    document.documentElement.dataset.theme = s.paper === "night" ? "dark" : "light";
+    if (s.paper === "grey") document.documentElement.dataset.paper = "grey";
+  })();
+</script>

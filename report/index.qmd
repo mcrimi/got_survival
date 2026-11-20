@@ -1,0 +1,397 @@
+---
+title: "Who dies in Game of Thrones?"
+subtitle: "A survival analysis of 359 characters, redone properly"
+author: "Mariano Crimi"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    embed-resources: true
+    theme: none
+    minimal: true
+    css: paper.css
+    include-in-header: header.html
+    include-before-body: before.html
+    highlight-style: none
+    code-fold: true
+    code-summary: "Code"
+    fig-width: 7
+    fig-height: 4.2
+    fig-dpi: 160
+    df-print: kable
+execute:
+  echo: true
+  warning: false
+  message: false
+knitr:
+  opts_knit:
+    root.dir: ".."
+---
+
+```{r setup}
+#| include: false
+library(targets)
+library(survival)
+library(ggplot2)
+tar_source("R")
+tar_load(c(characters, cox, enet, ph, cox_show_clock, cv_summary, deployed_name,
+           calibration, bias, simulation, boot))
+
+theme_set(
+  theme_minimal(base_size = 11) +
+    theme(
+      text = element_text(colour = "#1B1B19"), axis.text = element_text(colour = "#1B1B19"),
+      panel.grid = element_blank(), axis.line = element_line(linewidth = 0.3),
+      axis.ticks = element_line(linewidth = 0.3), legend.position = "bottom",
+      # White, so the image can be blended onto whichever paper the reader chose.
+      plot.background = element_rect(fill = "white", colour = NA),
+      strip.text = element_text(colour = "#1B1B19", hjust = 0, face = "bold"),
+      plot.title.position = "plot"
+    )
+)
+ink <- "#1B1B19"
+pct <- function(x, digits = 0) sprintf(paste0("%.", digits, "f%%"), 100 * x)
+num <- function(x, digits = 2) formatC(x, format = "f", digits = digits)
+metric <- function(model, name, horizon = NA) {
+  row <- cv_summary[cv_summary$model == model & cv_summary$metric == name &
+                      (is.na(horizon) | cv_summary$horizon %in% horizon), ]
+  row$mean[1]
+}
+overall <- survfit(Surv(time_hrs, dead) ~ 1, data = characters)
+horizon <- horizon_hrs(characters)
+finale <- summary(overall, times = horizon)
+med <- summary(overall)$table
+bias_naive <- bias[bias$analysis == "Naive", ]
+bias_lm <- bias[bias$analysis == "Landmark at 10 h", ]
+sim_naive <- simulation$results[1, ]
+sim_td <- simulation$results[2, ]
+```
+
+## Summary
+
+This is a rework of a course project I wrote in 2020. The question is the same: which
+characteristics of a Game of Thrones character predict how long they stay alive on screen?
+The answers are more modest than the first version claimed, and I think more interesting.
+
+- Of `r nrow(characters)` characters, `r sum(characters$dead)` die. Half are dead within
+  `r num(med[["median"]], 1)` hours of their first appearance, and a character introduced in
+  the first episode has a `r pct(finale$surv)` chance of reaching the finale
+  (95% CI `r pct(finale$lower)` to `r pct(finale$upper)`).
+- Using only what is known when a character is introduced (sex, social status, occupation,
+  faith, allegiance), survival is **only weakly predictable**. The best model reaches a
+  cross-validated C-index of about `r num(max(cv_summary$mean[cv_summary$metric == "c_index"]))`.
+  Being a woman, being highborn and backing the Starks help; following the Boltons or the
+  Drowned God does not.
+- The 2020 version's strongest predictors, *prominence* and *switching allegiance*, were
+  artefacts. A character must stay alive to switch sides or to appear in many episodes, so
+  both look protective by construction. Switching appears to cut the hazard of death by
+  `r pct(1 - bias_naive$hr)`. A simulation in which switching has **no effect at all**
+  shows the same analysis reporting a `r pct(1 - sim_naive$hr)` reduction.
+- The model on the [web page](../) is the `r c(cox = "plain Cox", enet = "elastic-net Cox")[[deployed_name]]`
+  model, chosen by cross-validated Brier score. It is exported as coefficients plus a baseline
+  hazard, and a test asserts that the JavaScript on the page reproduces R's predictions.
+
+## Data
+
+The data are the *Game of Thrones mortality and survival dataset* by Reidar Lystad and
+Benjamin Brown ([figshare](https://figshare.com/articles/Game_of_Thrones_mortality_and_survival_dataset/8259680/1)),
+which extends to season 8 the data behind their paper
+["Death is certain, the time is not"](https://doi.org/10.1186/s40621-018-0174-7)
+(*Injury Epidemiology*, 2018). Every character who appears on screen is followed from their
+first appearance until they die or the series ends.
+
+**Time scale.** Time is hours of running time since the character's first appearance.
+Characters still alive at the end of season 8 are right-censored. A character introduced in
+episode one can be followed for `r num(horizon, 1)` hours; one introduced in season 8 for a
+few hours at most. Censoring is therefore administrative and depends only on when the
+character was introduced.
+
+**Covariates.** Levels with fewer than `r MIN_LEVEL_N` characters are pooled into "Other",
+and the most common level of each factor is the reference.
+
+```{r data-table}
+do.call(rbind, lapply(BASELINE_TERMS, function(term) {
+  data.frame(
+    Covariate = TERM_LABELS[[term]], Level = levels(characters[[term]]),
+    Characters = as.vector(table(characters[[term]])),
+    Deaths = as.vector(tapply(characters$dead, characters[[term]], sum))
+  )
+}))
+```
+
+## What was wrong with the 2020 version
+
+| Problem | What it did | Fix |
+|---|---|---|
+| `prominence` and `allegiance_switched` used as predictors | Both are computed from a character's whole run, so they leak the outcome | Removed from the predictive model; analysed separately [below](#the-trap-immortal-time) |
+| "Elastic Net" was lasso | `cv.glmnet` ran at its default `alpha = 1` | Alpha tuned over a grid |
+| Two penalised models from two CV runs | `lambda.1se` and `lambda.min` came from different random folds | One fit, fixed folds |
+| One 75/25 split | With 90 test characters the AUC moves by ±0.1 on the seed alone | 20 × 5-fold cross-validation |
+| AUC at a single time point only | No measure of calibration | C-index, time-dependent AUC, Brier score, calibration |
+| The final model did not match the chosen formula | Allegiance was "the winner" and then dropped | One model, stated once |
+| A plot of deaths had its labels swapped | Alive was labelled "Yes" | Fixed |
+
+## Survival curves
+
+```{r km-overall}
+#| fig-cap: "Kaplan-Meier estimate for all characters, with 95% confidence band."
+s <- summary(overall, censored = FALSE)
+ggplot(data.frame(t = c(0, s$time), s = c(1, s$surv), lo = c(1, s$lower), hi = c(1, s$upper)),
+       aes(t, s)) +
+  geom_step(aes(y = lo), linetype = "dotted", colour = ink, linewidth = 0.3) +
+  geom_step(aes(y = hi), linetype = "dotted", colour = ink, linewidth = 0.3) +
+  geom_step(colour = ink, linewidth = 0.6) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  labs(x = "Hours on screen since introduction", y = "Still alive")
+```
+
+The curve drops fastest at the start: many characters are introduced only to be killed.
+
+```{r km-by}
+#| fig-height: 7
+#| fig-cap: "Kaplan-Meier curves by sex, social status and allegiance (four largest named houses)."
+km_frame <- function(term, keep = NULL) {
+  d <- if (is.null(keep)) characters else characters[characters[[term]] %in% keep, ]
+  fit <- survfit(Surv(d$time_hrs, d$dead) ~ droplevels(d[[term]]))
+  curves <- km_by_group(fit)
+  do.call(rbind, lapply(names(curves), function(g) {
+    data.frame(panel = TERM_LABELS[[term]], group = g, t = curves[[g]]$time, s = curves[[g]]$surv)
+  }))
+}
+curves <- rbind(km_frame("sex"), km_frame("social_status"),
+                km_frame("allegiance", c("Stark", "Lannister", "Night's Watch", "Targaryen")))
+ends <- do.call(rbind, lapply(split(curves, list(curves$panel, curves$group), drop = TRUE),
+                              function(g) g[nrow(g), ]))
+ggplot(curves, aes(t, s, group = group, linetype = group)) +
+  geom_step(colour = ink, linewidth = 0.5, show.legend = FALSE) +
+  geom_text(data = ends, aes(label = group), hjust = 0, nudge_x = 0.8, size = 3, colour = ink) +
+  facet_wrap(~panel, ncol = 1) +
+  scale_x_continuous(expand = expansion(mult = c(0.02, 0.22))) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  labs(x = "Hours on screen since introduction", y = "Still alive")
+```
+
+```{r logrank}
+do.call(rbind, lapply(BASELINE_TERMS, function(term) {
+  test <- survdiff(Surv(characters$time_hrs, characters$dead) ~ characters[[term]])
+  df <- length(test$n) - 1
+  data.frame(Covariate = TERM_LABELS[[term]], `Chi-squared` = round(test$chisq, 1), df = df,
+             `Log-rank p` = format.pval(pchisq(test$chisq, df, lower.tail = FALSE), digits = 2),
+             check.names = FALSE)
+}))
+```
+
+Each covariate separates the curves on its own. The covariates are also tangled together
+(most Night's Watch characters are lowborn men, for example), so the next step is a joint model.
+
+## Cox model
+
+```{r forest}
+#| fig-height: 5.5
+#| fig-cap: "Hazard ratios from the unpenalised Cox model, with 95% intervals. Right of the line means dying sooner than the reference group."
+hr <- hazard_ratios(cox)
+hr$label <- hr$column
+for (term in BASELINE_TERMS) hr$label <- sub(paste0("^", term), paste0(TERM_LABELS[[term]], ": "), hr$label)
+hr$label <- factor(hr$label, levels = rev(hr$label))
+ggplot(hr, aes(hr, label)) +
+  geom_vline(xintercept = 1, linewidth = 0.3, linetype = "dashed", colour = ink) +
+  geom_errorbarh(aes(xmin = lo, xmax = hi), height = 0, linewidth = 0.4, colour = ink) +
+  geom_point(shape = 22, fill = ink, colour = ink, size = 2) +
+  scale_x_log10() + labs(x = "Hazard ratio (log scale)", y = NULL)
+```
+
+Reference character: a `r tolower(levels(characters$social_status)[1])`
+`r tolower(levels(characters$sex)[1])` in a `r tolower(levels(characters$occupation)[1])`
+occupation, of `r tolower(levels(characters$religion)[1])` faith and
+"`r levels(characters$allegiance)[1]`" allegiance. Most intervals cross 1. With
+`r sum(characters$dead)` deaths spread over `r length(cox$coef)` coefficients, that is expected.
+
+### Is the proportional-hazards assumption reasonable?
+
+```{r ph}
+transform(ph, chisq = round(chisq, 1), p = format.pval(p, digits = 2))
+```
+
+Not entirely. The global Schoenfeld test rejects, driven mainly by social status and occupation:
+their effects change over a character's run. I keep the proportional-hazards form for the
+deployed model because it has to be exported as a handful of numbers, and I judge the models
+on Brier score and calibration, which do not assume it. The random forest below makes no such
+assumption and serves as a check on how much is lost.
+
+### Does the choice of clock matter?
+
+Time since introduction is one choice. The other is the show's own clock, with each character
+entering the risk set when introduced (left truncation), which compares characters who are
+alive at the same point in the story.
+
+```{r clocks}
+#| fig-cap: "Coefficients under the two time scales. Points on the diagonal are identical."
+both <- data.frame(character = cox$coef, show = coef(cox_show_clock)[names(cox$coef)])
+ggplot(both, aes(character, show)) +
+  geom_abline(linewidth = 0.3, linetype = "dashed", colour = ink) +
+  geom_point(shape = 22, fill = ink, colour = ink) +
+  labs(x = "Coefficient, character clock", y = "Coefficient, show clock") + coord_equal()
+```
+
+The two agree closely (correlation `r num(cor(both$character, both$show))`), so the conclusions
+do not hinge on the clock.
+
+## Penalised Cox and a random forest
+
+The elastic net shrinks the coefficients towards zero, trading a little bias for less variance.
+Alpha is tuned over `r paste(ENET_ALPHAS, collapse = ", ")` and lambda by 10-fold
+cross-validated partial likelihood, with the same folds for every alpha.
+
+```{r enet}
+transform(enet$tuning, cv_deviance = round(cv_deviance, 4))
+```
+
+The deviance barely moves across alpha: the data do not say whether ridge or lasso is better.
+The chosen alpha is `r enet$alpha`.
+
+```{r shrink}
+#| fig-cap: "Elastic-net coefficients against unpenalised ones. Everything is pulled towards zero."
+ggplot(data.frame(cox = cox$coef, enet = enet$coef), aes(cox, enet)) +
+  geom_abline(linewidth = 0.3, linetype = "dashed", colour = ink) +
+  geom_hline(yintercept = 0, linewidth = 0.2, colour = ink) +
+  geom_point(shape = 22, fill = ink, colour = ink) +
+  labs(x = "Cox coefficient", y = "Elastic-net coefficient") + coord_equal()
+```
+
+The random survival forest (500 trees, minimum node size 15) can capture interactions and
+non-proportional effects that the Cox models cannot.
+
+## Validation
+
+All figures below come from 20 repeats of stratified 5-fold cross-validation. Within a repeat,
+every character is predicted by a model that never saw them; tuning happens inside each
+training fold. The table shows the mean over repeats and the range covering 95% of them. That
+range reflects the luck of the fold split, not sampling uncertainty in the data, which is larger.
+
+```{r metrics}
+wide <- function(name, digits = 3) {
+  d <- cv_summary[cv_summary$metric == name, ]
+  d$cell <- sprintf(paste0("%.", digits, "f (%.", digits, "f to %.", digits, "f)"), d$mean, d$lo, d$hi)
+  # The no-covariate model is the same in every repeat, so it has no range.
+  d$cell[d$hi - d$lo < 1e-9] <- sprintf(paste0("%.", digits, "f"), d$mean[d$hi - d$lo < 1e-9])
+  d$Measure <- switch(name,
+    c_index = "C-index", auc = paste0("AUC at ", d$horizon, " h"),
+    brier = paste0("Brier at ", d$horizon, " h"), ibs = "Integrated Brier, 0 to 50 h")
+  out <- reshape(d[c("Measure", "model", "cell")], idvar = "Measure", timevar = "model", direction = "wide")
+  names(out) <- sub("^cell\\.", "", names(out))
+  out
+}
+tab <- Reduce(function(a, b) merge(a, b, all = TRUE, sort = FALSE),
+              lapply(c("c_index", "auc", "ibs", "brier"), wide))
+cols <- intersect(c("Measure", "Null model", "cox", "enet", "rsf"), names(tab))
+tab <- tab[cols]
+names(tab) <- c(Measure = "Measure", `Null model` = "No covariates", cox = "Cox",
+                enet = "Elastic net", rsf = "Random forest")[cols]
+tab[is.na(tab)] <- ""
+knitr::kable(tab, row.names = FALSE)
+```
+
+Higher is better for C-index and AUC; lower is better for Brier. Three things stand out.
+
+1. **The signal is weak.** A C-index near `r num(metric("enet", "c_index"))` means the model
+   ranks a random pair of characters correctly a bit more often than a coin. Sex, status, faith
+   and allegiance tell you something about who dies, but the writers decide most of it.
+2. **Unpenalised Cox barely beats ignoring the covariates** on the integrated Brier score
+   (`r num(metric("cox", "ibs"), 3)` against `r num(metric("Null model", "ibs"), 3)`), and by
+   50 hours it is worse: its 18 coefficients overfit. Shrinkage helps
+   (`r num(metric("enet", "ibs"), 3)`).
+3. **The forest is a little better again** (`r num(metric("rsf", "ibs"), 3)`), which fits the
+   proportional-hazards violation above. The gap is small next to the cost of shipping a forest
+   to a browser, so the `r c(cox = "Cox", enet = "elastic-net")[[deployed_name]]` model is the one deployed.
+
+```{r calibration}
+#| fig-cap: "Calibration of the deployed model at 30 hours: out-of-fold predicted risk of death in five groups against the observed (Kaplan-Meier) risk."
+ggplot(calibration, aes(predicted, observed)) +
+  geom_abline(linewidth = 0.3, linetype = "dashed", colour = ink) +
+  geom_errorbar(aes(ymin = lo, ymax = hi), width = 0, linewidth = 0.4, colour = ink) +
+  geom_point(shape = 22, fill = ink, colour = ink, size = 2.5) +
+  scale_x_continuous(limits = c(0, 1), labels = scales::percent) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  labs(x = "Predicted risk of death by 30 h", y = "Observed risk") + coord_equal()
+```
+
+The model's predicted risks span a narrow range, which is what an honest weak model should do,
+and the groups sit near the diagonal.
+
+## The trap: immortal time {#the-trap-immortal-time}
+
+The 2020 analysis found that characters who switched allegiance lived much longer, and built
+its final model on that. The effect is real in the data:
+
+```{r bias}
+knitr::kable(transform(bias, hr = round(hr, 2), lo = round(lo, 2), hi = round(hi, 2)),
+             col.names = c("Analysis", "Hazard ratio for switching", "Lower", "Upper", "Characters", "Deaths"))
+```
+
+But "ever switched" is only known at the end of a character's run. Someone who dies in their
+first scene never had the chance to switch, so they are counted as loyal, and all of the time
+a switcher spent alive *before* switching is credited to switching. That stretch is called
+immortal time: by definition, nobody dies in it.
+
+A **landmark analysis** removes part of this. It keeps only characters still alive at a fixed
+point (say 10 hours in) and restarts the clock there, so the early deaths no longer count
+against the loyal. The hazard ratio moves from `r num(bias_naive$hr)` to `r num(bias_lm$hr)`,
+and its interval now reaches 1. This is not a correction. The flag still includes switches
+made after the landmark, and the dataset does not record when a switch happened.
+**The true effect of switching sides cannot be estimated from this data.**
+
+What can be shown is that the mechanism alone is enough to produce the result. In the
+simulation below, `r format(simulation$n, big.mark = ",")` characters die at random and switch
+sides at random, independently. Switching has no effect on anyone's hazard.
+
+```{r simulation}
+#| fig-cap: "Simulated data in which switching does nothing. Grouped by 'ever switched', the switchers still appear to live far longer."
+sim <- do.call(rbind, lapply(names(simulation$curves), function(g) {
+  data.frame(group = c(No = "Never switched", Yes = "Ever switched")[[g]],
+             t = simulation$curves[[g]]$time, s = simulation$curves[[g]]$surv)
+}))
+ggplot(sim, aes(t, s, linetype = group)) + geom_step(colour = ink, linewidth = 0.5) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  labs(x = "Hours", y = "Still alive", linetype = NULL)
+knitr::kable(transform(simulation$results, hr = round(hr, 2), lo = round(lo, 2), hi = round(hi, 2)),
+             col.names = c("Analysis of the simulated data", "Hazard ratio", "Lower", "Upper"))
+```
+
+The naive analysis reports a hazard ratio of `r num(sim_naive$hr)` for something that does
+nothing. Treating the switch as a time-dependent covariate, so that a character counts as a
+switcher only from the moment they switch, recovers the truth
+(`r num(sim_td$hr)`, interval `r num(sim_td$lo)` to `r num(sim_td$hi)`).
+The same reasoning applies to `prominence`, which is built from the number of episodes a
+character survived to appear in.
+
+Dating each of the 55 switches from the episodes would allow the time-dependent analysis on
+the real data. That is the natural next step.
+
+## Limitations
+
+- **Allegiance is the last known one**, not the one at introduction. For the 55 characters who
+  switched, the model is told where they ended up. This is a milder form of the same leak and
+  the data offer no way round it.
+- **Small groups.** Several levels have 13 or 14 characters. Their coefficients are uncertain,
+  and the penalty pulls them towards zero.
+- **Proportional hazards does not hold** for every covariate.
+- **Intervals on the web page** come from 200 bootstrap refits at fixed alpha and lambda. They
+  leave out tuning uncertainty and are narrower than a fully honest interval would be.
+- **The far end of the curve is thin.** Only characters introduced in the first minutes of
+  season 1 can be followed for the full `r num(horizon, 0)` hours, so "chance of reaching the
+  finale" rests on few characters and assumes that the hazard depends on time since
+  introduction, not on the season.
+- **This describes a script, not a population.** Deaths are authored. The model is for
+  entertainment and for teaching survival analysis.
+
+## Reproducing this
+
+```r
+renv::restore()        # exact package versions
+targets::tar_make()    # data -> models -> validation -> JSON -> this report
+```
+
+```{r session}
+#| code-fold: true
+sessionInfo()
+```
