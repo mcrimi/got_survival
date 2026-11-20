@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   pipeline:
-    runs-on: ubuntu-latest
+    # Pinned: the locked package versions have prebuilt binaries for this release.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
